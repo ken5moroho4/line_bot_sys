@@ -3,6 +3,7 @@ import { getAdmin } from "@/lib/supabase";
 import { revalidateSite } from "@/lib/site";
 
 export const NEWS_STORES = {
+  hadano: "秦野店",
   zushi: "逗子店",
   kaname: "金目店",
   yamamori: "山守",

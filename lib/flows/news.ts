@@ -29,6 +29,7 @@ function save(userId: string, step: Step, data: Draft) {
 function matchStore(input: string): NewsStore | undefined {
   const s = input.normalize("NFKC").replace(/\s/g, "");
   if (/逗子|鎌倉|小町|渚/.test(s)) return "zushi";
+  if (/秦野|はだの/.test(s)) return "hadano";
   if (/金目|平塚/.test(s)) return "kaname";
   if (/山守|茶屋/.test(s)) return "yamamori";
   return undefined;

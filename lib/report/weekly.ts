@@ -16,6 +16,7 @@ const SYSTEM = `あなたは小さな豆腐店「杜のとうふ工房 三河屋
   detail には、そのエンジニアが迷わず作業できるよう、目的・対象ページ・具体的な変更内容・やってはいけないことを書いてください。
   大きな作り直しではなく、1つのPRで終わる小さく安全な改善に限ります（決済・会員・注文処理には触れない）。
 
+数字は changes に前週比（%）を計算済みなので、それを使ってください。増減を書くときは「前週 849 → 今週 2,038（+140%）」のように必ず「前週 → 今週」の順にします。
 数字が少なすぎて判断できない場合は、無理に提案せず、そのことを summary に書いてください。
 出力は次の JSON だけにしてください。
 {
@@ -26,8 +27,16 @@ const SYSTEM = `あなたは小さな豆腐店「杜のとうふ工房 三河屋
 }
 proposals は最大3件。`;
 
+// 前週比（%）。前週が0なら null
+function percent(thisWeek: number, lastWeek: number): number | null {
+  return lastWeek ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : null;
+}
+
 function fallbackSummary(s: WeeklyStats): string {
-  const diff = (a: number, b: number) => (b ? `${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)}%` : "—");
+  const diff = (a: number, b: number) => {
+    const p = percent(a, b);
+    return p === null ? "—" : `${p >= 0 ? "+" : ""}${p}%`;
+  };
   const top = s.topPages.slice(0, 3).map((p) => `${p.path}（${p.views}）`).join("、");
   return [
     `閲覧数 ${s.pageviews.thisWeek}（前週比 ${diff(s.pageviews.thisWeek, s.pageviews.lastWeek)}）`,
@@ -47,7 +56,14 @@ export async function buildWeeklyReport(options: { save: boolean }): Promise<Wee
     return { stats, summary: fallbackSummary(stats), proposals: [] };
   }
 
-  const text = await askClaude(SYSTEM, `今週（直近7日）と前週の数字です。\n${JSON.stringify(stats, null, 2)}`);
+  const changes = {
+    pageviews: percent(stats.pageviews.thisWeek, stats.pageviews.lastWeek),
+    visitors: percent(stats.visitors.thisWeek, stats.visitors.lastWeek),
+  };
+  const text = await askClaude(
+    SYSTEM,
+    `今週（直近7日）と前週（その前の7日）の数字です。\n${JSON.stringify({ ...stats, changes }, null, 2)}`
+  );
   const parsed = extractJson<{ summary?: string; proposals?: Partial<NewProposal>[] }>(text);
 
   const week = weekLabel();
