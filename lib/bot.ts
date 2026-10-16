@@ -4,6 +4,7 @@ import { reply, text } from "@/lib/line/api";
 import type { LineEvent } from "@/lib/line/types";
 import { clearSession, loadSession } from "@/lib/session";
 import { isAllowedStaff } from "@/lib/staff";
+import { handlePostback } from "@/lib/postback";
 import { FLOWS } from "@/lib/flows";
 import { CMD_CANCEL } from "@/lib/flows/commands";
 import type { Context } from "@/lib/flows/types";
@@ -30,6 +31,17 @@ export async function handleEvent(event: LineEvent): Promise<void> {
     if (isAllowedStaff(userId)) await reply(replyToken, [helpMessage()]);
     return;
   }
+  if (event.type === "postback" && event.postback) {
+    if (!isAllowedStaff(userId)) return;
+    try {
+      await handlePostback(replyToken, event.postback.data);
+    } catch (err) {
+      console.error("postback error:", err);
+      await reply(replyToken, [text("エラーが発生しました。少し時間をおいて、もう一度お試しください。")]);
+    }
+    return;
+  }
+
   if (event.type !== "message" || !event.message) return;
 
   if (!isAllowedStaff(userId)) {

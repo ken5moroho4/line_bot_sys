@@ -4,7 +4,7 @@
 
 - サイトとは別リポジトリ・別Vercelプロジェクト
 - データはサイトと同じSupabaseを読み書きする（サイト側は表示するだけ）
-- いまできること：お知らせ（ニュース）の投稿
+- いまできること：お知らせ（ニュース）の投稿、週次レポートと改善提案（PostHog → AI → LINE）、提案の採用でサイトをAIが改修
 
 ## しくみ
 
@@ -49,3 +49,26 @@
 
 - 注文が入ったときの従業員への通知（プッシュ送信）はサイト側に残している
 - お客さま向け公式アカウント（@033okpoz）の自動返信もサイト側
+
+## 週次レポートと改善提案
+
+```
+毎週月曜 9:00（Vercel Cron）
+  └─ /api/cron/weekly
+       ├─ PostHog から直近7日・前週の数字を集計（lib/posthog.ts）
+       ├─ Claude が読んで提案を最大3件（lib/report/weekly.ts）→ line_proposals に保存
+       └─ 従業員のLINEに「今週の様子」＋提案カード（採用する／見送る）
+
+「採用する」（サイトの改修）
+  └─ GitHub の repository_dispatch（line-proposal）
+       └─ サイト側 .github/workflows/line-proposal.yml
+            ├─ main から枝を切り、Claude Code が修正 → PR（main 向け）
+            └─ Vercel のプレビューができたら line-proposal-preview.yml が /api/github/preview を呼ぶ
+                 └─ LINEに「プレビューを見る／本番に反映する／やめる」
+
+「本番に反映する」→ PR を main にマージ（本番デプロイ）→ main を dev に取り込む
+```
+
+- 手で試す：`curl -H "Authorization: Bearer $CRON_SECRET" "https://<URL>/api/cron/weekly?dry=1"`（LINEには送らず中身だけ返る）
+- 改修の提案は「1つのPRで終わる小さく安全なもの」に限り、決済・会員・注文には触れないよう AI に指示している
+- 話しかける方向のメッセージは月の配信数を使う（週1回のレポート＋プレビュー通知）
