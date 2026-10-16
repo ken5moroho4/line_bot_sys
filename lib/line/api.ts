@@ -14,12 +14,13 @@ export async function reply(replyToken: string, messages: LineMessage[]): Promis
   if (!res.ok) console.error(`LINE reply failed (${res.status}): ${await res.text()}`);
 }
 
-// こちらから話しかける（月の配信数を消費する）。宛先は従業員全員
+// こちらから話しかける（月の配信数を消費する）。宛先は従業員の個人トークだけ。
+// グループ（C…）やトークルーム（R…）のIDが混ざっていても送らない
 export async function pushToStaff(messages: LineMessage[]): Promise<void> {
   const ids = (process.env.LINE_STAFF_USER_IDS || "")
     .split(",")
     .map((id) => id.trim())
-    .filter(Boolean);
+    .filter((id) => id.startsWith("U"));
   for (const to of ids) {
     const res = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
