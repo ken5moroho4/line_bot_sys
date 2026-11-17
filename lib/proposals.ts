@@ -60,3 +60,14 @@ export async function transition(id: string, from: ProposalStatus[], to: Proposa
   if (error) throw new Error(error.message);
   return data as Proposal | null;
 }
+
+// 過去の提案（同じことを何度も提案しないよう、週次レポートの AI に渡す）
+export async function listRecentProposals(limit = 30): Promise<Pick<Proposal, "week" | "kind" | "title" | "summary" | "status">[]> {
+  const { data, error } = await getAdmin()
+    .from("line_proposals")
+    .select("week, kind, title, summary, status")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}

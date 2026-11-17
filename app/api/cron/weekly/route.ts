@@ -6,6 +6,7 @@ import { buildWeeklyReport } from "@/lib/report/weekly";
 
 // 毎週月曜の朝（vercel.json の crons）に Vercel から呼ばれる。
 // 手で試すとき：GET /api/cron/weekly?dry=1 （Authorization: Bearer <CRON_SECRET>）→ LINEには送らず中身だけ返す
+// ?dry=1&proposals=1 で、WEEKLY_PROPOSALS が off でも提案の中身を試せる
 export const maxDuration = 120;
 
 export async function GET(request: NextRequest) {
@@ -15,7 +16,8 @@ export async function GET(request: NextRequest) {
   const dry = request.nextUrl.searchParams.get("dry") === "1";
 
   try {
-    const report = await buildWeeklyReport({ save: !dry });
+    const proposals = dry && request.nextUrl.searchParams.get("proposals") === "1" ? true : undefined;
+    const report = await buildWeeklyReport({ save: !dry, proposals });
     if (!dry) {
       const head = text(`【今週のサイトの様子】\n${report.summary}`);
       await pushToStaff(report.proposals.length ? [head, proposalsMessage(report.proposals)] : [head]);

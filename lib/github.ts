@@ -56,3 +56,13 @@ export async function closePullRequest(prNumber: number): Promise<void> {
   const res = await gh(`/pulls/${prNumber}`, { method: "PATCH", body: JSON.stringify({ state: "closed" }) });
   await ensureOk(res, "close PR");
 }
+
+// 本番（main）に入った最近の変更。週次レポートの AI に「もうやったこと」として渡す
+export async function recentCommits(limit = 40): Promise<{ date: string; message: string }[]> {
+  const res = await gh(`/commits?sha=main&per_page=${limit}`);
+  await ensureOk(res, "list commits");
+  const json = (await res.json()) as { commit: { message: string; author?: { date?: string } } }[];
+  return json
+    .map((c) => ({ date: (c.commit.author?.date ?? "").slice(0, 10), message: c.commit.message.split("\n")[0] }))
+    .filter((c) => !/^Merge (pull request|branch)/.test(c.message));
+}

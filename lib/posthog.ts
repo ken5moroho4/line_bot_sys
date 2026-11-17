@@ -28,14 +28,25 @@ export type WeeklyStats = {
   referrers: { domain: string; views: number }[];
   devices: { device: string; views: number }[];
   events: { event: string; thisWeek: number; lastWeek: number }[];
+  // 購入までの流れ（各段階まで進んだ人数）
+  funnel: { step: string; label: string; thisWeek: number; lastWeek: number }[];
 };
+
+// 購入までの段階。サイトの lib/analytics.ts が送っているイベント名
+export const FUNNEL_STEPS = [
+  { step: "add_to_cart", label: "カートに入れた" },
+  { step: "view_cart", label: "カートを見た" },
+  { step: "begin_checkout", label: "購入手続きへ進んだ" },
+  { step: "add_payment_info", label: "支払い方法を選んだ" },
+  { step: "purchase", label: "購入した" },
+] as const;
 
 const num = (v: unknown) => Number(v ?? 0);
 const str = (v: unknown, fallback: string) => (v === null || v === undefined || v === "" ? fallback : String(v));
 
 // 直近7日と、その前の7日を比べられる形で集める
 export async function collectWeeklyStats(): Promise<WeeklyStats> {
-  const [overview, topPages, referrers, devices, events] = await Promise.all([
+  const [overview, topPages, referrers, devices, events, funnel] = await Promise.all([
     hogql(`
       SELECT
         countIf(${THIS_WEEK}), countIf(${LAST_WEEK}),
@@ -63,7 +74,15 @@ export async function collectWeeklyStats(): Promise<WeeklyStats> {
       FROM events
       WHERE timestamp >= now() - INTERVAL 14 DAY AND NOT startsWith(event, '$')
       GROUP BY event ORDER BY this_week DESC LIMIT 20`),
+    // 何人がその段階まで進んだか（回数ではなく人数）
+    hogql(`
+      SELECT event, uniqIf(distinct_id, ${THIS_WEEK}), uniqIf(distinct_id, ${LAST_WEEK})
+      FROM events
+      WHERE timestamp >= now() - INTERVAL 14 DAY
+        AND event IN (${FUNNEL_STEPS.map((f) => `'${f.step}'`).join(", ")})
+      GROUP BY event`),
   ]);
+  const funnelByEvent = new Map(funnel.map((r) => [String(r[0]), r]));
 
   const o = overview[0] ?? [];
   return {
@@ -73,5 +92,9 @@ export async function collectWeeklyStats(): Promise<WeeklyStats> {
     referrers: referrers.map((r) => ({ domain: str(r[0], "(直接・不明)"), views: num(r[1]) })),
     devices: devices.map((r) => ({ device: str(r[0], "(不明)"), views: num(r[1]) })),
     events: events.map((r) => ({ event: str(r[0], "?"), thisWeek: num(r[1]), lastWeek: num(r[2]) })),
+    funnel: FUNNEL_STEPS.map((f) => {
+      const r = funnelByEvent.get(f.step);
+      return { step: f.step, label: f.label, thisWeek: num(r?.[1]), lastWeek: num(r?.[2]) };
+    }),
   };
 }
