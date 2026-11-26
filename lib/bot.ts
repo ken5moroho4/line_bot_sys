@@ -26,19 +26,27 @@ function helpMessage() {
   );
 }
 
+function stripSelfMention(message: NonNullable<LineEvent["message"]>): string {
+  const self = (message.mention?.mentionees ?? []).filter((m) => m.isSelf).sort((a, b) => b.index - a.index);
+  let t = message.text ?? "";
+  for (const m of self) t = t.slice(0, m.index) + t.slice(m.index + m.length);
+  return t.trim();
+}
+
 export async function handleEvent(event: LineEvent): Promise<void> {
   const replyToken = event.replyToken;
-  if (!replyToken) return;
+  const source = event.source;
+  if (!replyToken || !source) return;
+  const userId = source.userId;
+  const inGroup = source.type !== "user";
+  const chatId = source.groupId ?? source.roomId;
+  if (inGroup && !chatId) return;
 
-  // グループの発言は扱わない（通知用グループに質問を流さないため）
-  if (event.source?.type !== "user") return;
-  const userId = event.source.userId;
-
-  if (event.type === "follow") {
+  if (event.type === "follow" && !inGroup) {
     if (isAllowedStaff(userId)) await reply(replyToken, [helpMessage()]);
     return;
   }
-  if (event.type === "postback" && event.postback) {
+  if (event.type === "postback" && event.postback && !inGroup) {
     if (!isAllowedStaff(userId)) return;
     try {
       await handlePostback(replyToken, event.postback.data);
@@ -52,39 +60,45 @@ export async function handleEvent(event: LineEvent): Promise<void> {
   if (event.type !== "message" || !event.message) return;
 
   if (!isAllowedStaff(userId)) {
+    if (inGroup) return;
     await reply(replyToken, [
-      text(`このボットは従業員専用です。\n使う場合は管理者に次のIDを伝えてください。\n${userId ?? ""}`),
+      text(`このボットは従業員専用です。
+使う場合は管理者に次のIDを伝えてください。
+${userId ?? ""}`),
     ]);
     return;
   }
 
   const message = event.message;
+  const mentioned = (message.mention?.mentionees ?? []).some((m) => m.isSelf);
   const ctx: Context = {
     replyToken,
-    userId: userId!,
+    sessionKey: inGroup ? `${userId}@${chatId}` : userId!,
     message,
-    input: message.type === "text" ? (message.text ?? "").trim() : "",
+    input: message.type === "text" ? stripSelfMention(message) : "",
   };
 
   try {
+    const session = await loadSession(ctx.sessionKey);
+    const started = FLOWS.find((f) => f.trigger.test(ctx.input));
+    if (inGroup && !mentioned && !started && !session) return;
+
     if (ctx.input === CMD_CANCEL || ctx.input === "キャンセル") {
-      await clearSession(ctx.userId);
+      await clearSession(ctx.sessionKey);
       await reply(replyToken, [text("やめました。サイトは変わっていません。", MENU)]);
       return;
     }
 
-    const started = FLOWS.find((f) => f.trigger.test(ctx.input));
     if (started) {
       await started.start(ctx);
       return;
     }
 
-    if (CMD_HELP.test(ctx.input)) {
+    if (CMD_HELP.test(ctx.input) || (inGroup && !session && message.type === "text" && !ctx.input)) {
       await reply(replyToken, [helpMessage()]);
       return;
     }
 
-    const session = await loadSession(ctx.userId);
     const flow = session && FLOWS.find((f) => f.name === session.flow);
     if (!session || !flow) {
       await DEFAULT_FLOW.start(ctx);

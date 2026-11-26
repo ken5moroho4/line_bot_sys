@@ -1,8 +1,10 @@
+export type Mentionee = { index: number; length: number; type: string; isSelf?: boolean };
+
 export type LineEvent = {
   type: string;
   replyToken?: string;
-  source?: { type: string; userId?: string };
-  message?: { type: string; id?: string; text?: string };
+  source?: { type: string; userId?: string; groupId?: string; roomId?: string };
+  message?: { type: string; id?: string; text?: string; mention?: { mentionees: Mentionee[] } };
   postback?: { data: string };
 };
 

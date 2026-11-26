@@ -12,8 +12,8 @@ const CMD_DELETE_NEWS = "お知らせ削除";
 const CMD_CONFIRM = "削除する";
 const LIST_SIZE = 10;
 
-function save(userId: string, step: Step, data: Data) {
-  return saveSession<Data>(userId, { flow: FLOW, step, data });
+function save(sessionKey: string, step: Step, data: Data) {
+  return saveSession<Data>(sessionKey, { flow: FLOW, step, data });
 }
 
 function describe(n: NewsSummary): string {
@@ -30,7 +30,7 @@ async function start(ctx: Context) {
     await reply(ctx.replyToken, [text("消せるお知らせがありません。")]);
     return;
   }
-  await save(ctx.userId, "pick", { choices });
+  await save(ctx.sessionKey, "pick", { choices });
   await reply(ctx.replyToken, [
     text(
       ["どのお知らせを消しますか？新しい順に並べています。", "", ...choices.map((n, i) => `${i + 1}. ${describe(n)}`)].join("\n"),
@@ -50,7 +50,7 @@ async function handle(ctx: Context, session: Session) {
       await reply(ctx.replyToken, [text("下のボタンから消すお知らせを選んでください。", buttons)]);
       return;
     }
-    await save(ctx.userId, "confirm", { ...data, target });
+    await save(ctx.sessionKey, "confirm", { ...data, target });
     await reply(ctx.replyToken, [
       text(`${describe(target)}\nを削除しますか？サイトからすぐ消えます。`, [CMD_CONFIRM, CMD_CANCEL]),
     ]);
@@ -63,12 +63,12 @@ async function handle(ctx: Context, session: Session) {
       return;
     }
     await deleteNews(data.target.slug);
-    await clearSession(ctx.userId);
+    await clearSession(ctx.sessionKey);
     await reply(ctx.replyToken, [text(`削除しました。\n${describe(data.target)}`, [CMD_DELETE_NEWS])]);
     return;
   }
 
-  await clearSession(ctx.userId);
+  await clearSession(ctx.sessionKey);
   await start(ctx);
 }
 

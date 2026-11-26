@@ -4,7 +4,7 @@ import type { Session } from "@/lib/session";
 // 1回の受信メッセージについての情報
 export type Context = {
   replyToken: string;
-  userId: string;
+  sessionKey: string;
   message: NonNullable<LineEvent["message"]>;
   input: string; // 文字メッセージなら前後の空白を除いた本文、それ以外は ""
 };

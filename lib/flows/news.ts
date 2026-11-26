@@ -46,8 +46,8 @@ const SYSTEM = `あなたは豆腐店「杜のとうふ工房 三河屋」の従
 出力は次の JSON だけにしてください。変えない項目も、今の値をそのまま入れてください。
 { "action": "draft" | "delete", "store": "hadano" | "zushi" | "kaname" | "yamamori" | null, "title": string | null, "content": string | null, "reply": "従業員への短い返事（1〜2文）" }`;
 
-function save(userId: string, data: Data) {
-  return saveSession<Data>(userId, { flow: FLOW, step: "chat", data });
+function save(sessionKey: string, data: Data) {
+  return saveSession<Data>(sessionKey, { flow: FLOW, step: "chat", data });
 }
 
 function isComplete(d: Draft): boolean {
@@ -108,14 +108,14 @@ async function talk(ctx: Context, data: Data) {
   const system = `${SYSTEM}\n\n今日は ${todayJst()} です。\n今の下書き：${JSON.stringify({ ...draftForAi, image: image ? "あり" : "なし" })}`;
   const raw = extractJson<Record<string, unknown>>(await chatAi(system, history, 2000));
   if (raw.action === "delete") {
-    await clearSession(ctx.userId);
+    await clearSession(ctx.sessionKey);
     await newsDeleteFlow.start(ctx);
     return;
   }
   const draft = sanitize(raw, data.draft);
   const message = typeof raw.reply === "string" && raw.reply.trim() ? raw.reply.trim() : "下書きを作りました。";
 
-  await save(ctx.userId, {
+  await save(ctx.sessionKey, {
     draft,
     history: [...history, { role: "assistant" as const, content: JSON.stringify(raw) }].slice(-MAX_HISTORY),
   });
@@ -135,7 +135,7 @@ async function publish(ctx: Context, d: Draft) {
     image: d.image ?? null,
     content: d.content!,
   });
-  await clearSession(ctx.userId);
+  await clearSession(ctx.sessionKey);
   await reply(ctx.replyToken, [
     text(`公開しました！\n${siteUrl()}/news/${slug}\n\n※消すときは「お知らせ削除」と送ってください。修正・メール配信は管理画面から行ってください。`, [CMD_NEWS]),
   ]);
@@ -148,7 +148,7 @@ async function start(ctx: Context) {
   }
   const empty: Data = { draft: {}, history: [] };
   if (TRIGGER.test(ctx.input)) {
-    await save(ctx.userId, empty);
+    await save(ctx.sessionKey, empty);
     await reply(ctx.replyToken, [
       text(
         "どんなお知らせですか？話しかけるように送ってください。\n例：秦野店、12月1日から寄せ豆腐はじめるってお知らせ出して\n（やめるときは「やめる」）",
@@ -168,7 +168,7 @@ async function handle(ctx: Context, session: Session) {
   if (message.type === "image" && message.id) {
     const { bytes, contentType } = await fetchContent(message.id);
     const draft = { ...current.draft, image: await uploadNewsImage(bytes, contentType) };
-    await save(ctx.userId, { ...current, draft });
+    await save(ctx.sessionKey, { ...current, draft });
     await replyWithDraft(
       ctx.replyToken,
       hasDraft(draft) ? "写真を付けました。" : "写真を受け取りました。どんなお知らせか話しかけてください。",
@@ -182,7 +182,7 @@ async function handle(ctx: Context, session: Session) {
   }
   if (input === CMD_REMOVE_IMAGE) {
     const draft = { ...current.draft, image: null };
-    await save(ctx.userId, { ...current, draft });
+    await save(ctx.sessionKey, { ...current, draft });
     await replyWithDraft(ctx.replyToken, "写真を外しました。", draft);
     return;
   }
