@@ -10,22 +10,22 @@ type Step = "pick" | "confirm";
 const FLOW = "news-delete";
 const CMD_DELETE_NEWS = "お知らせ削除";
 const CMD_CONFIRM = "削除する";
-const LIST_SIZE = 10;
+export const NEWS_LIST_SIZE = 10;
 
 function save(sessionKey: string, step: Step, data: Data) {
   return saveSession<Data>(sessionKey, { flow: FLOW, step, data });
 }
 
-function describe(n: NewsSummary): string {
+export function describe(n: NewsSummary): string {
   return `${n.date} ${storeLabel(n.store)}「${n.title}」`;
 }
 
-function choiceLabel(n: NewsSummary, i: number): string {
+export function choiceLabel(n: NewsSummary, i: number): string {
   return `${i + 1}. ${n.title}`;
 }
 
 async function start(ctx: Context) {
-  const choices = await listRecentNews(LIST_SIZE);
+  const choices = await listRecentNews(NEWS_LIST_SIZE);
   if (!choices.length) {
     await reply(ctx.replyToken, [text("消せるお知らせがありません。")]);
     return;

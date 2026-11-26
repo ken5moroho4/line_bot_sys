@@ -7,6 +7,7 @@ import { isAllowedStaff } from "@/lib/staff";
 import { handlePostback } from "@/lib/postback";
 import { DEFAULT_FLOW, FLOWS } from "@/lib/flows";
 import { CMD_CANCEL } from "@/lib/flows/commands";
+import { isPending, rememberImage } from "@/lib/flows/news";
 import type { Context } from "@/lib/flows/types";
 
 const MENU = FLOWS.map((f) => f.label);
@@ -46,7 +47,7 @@ export async function handleEvent(event: LineEvent): Promise<void> {
     if (isAllowedStaff(userId)) await reply(replyToken, [helpMessage()]);
     return;
   }
-  if (event.type === "postback" && event.postback && !inGroup) {
+  if (event.type === "postback" && event.postback) {
     if (!isAllowedStaff(userId)) return;
     try {
       await handlePostback(replyToken, event.postback.data);
@@ -81,7 +82,11 @@ ${userId ?? ""}`),
   try {
     const session = await loadSession(ctx.sessionKey);
     const started = FLOWS.find((f) => f.trigger.test(ctx.input));
-    if (inGroup && !mentioned && !session) return;
+    const talking = session && !isPending(session);
+    if (inGroup && !mentioned && !talking) {
+      if (message.type === "image" && message.id) await rememberImage(ctx.sessionKey, message.id);
+      return;
+    }
 
     if (ctx.input === CMD_CANCEL || ctx.input === "キャンセル") {
       await clearSession(ctx.sessionKey);
@@ -94,7 +99,7 @@ ${userId ?? ""}`),
       return;
     }
 
-    if (CMD_HELP.test(ctx.input) || (inGroup && !session && message.type === "text" && !ctx.input)) {
+    if (CMD_HELP.test(ctx.input) || (inGroup && !talking && message.type === "text" && !ctx.input)) {
       await reply(replyToken, [helpMessage()]);
       return;
     }

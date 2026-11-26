@@ -80,6 +80,16 @@ export async function listRecentNews(limit: number): Promise<NewsSummary[]> {
   return data ?? [];
 }
 
+export async function getNews(slug: string): Promise<(NewsSummary & { excerpt: string; image: string | null }) | null> {
+  const { data, error } = await getAdmin()
+    .from("news")
+    .select("slug, title, store, date, excerpt, image")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function deleteNews(slug: string): Promise<void> {
   const { error } = await getAdmin().from("news").delete().eq("slug", slug);
   if (error) throw new Error(error.message);

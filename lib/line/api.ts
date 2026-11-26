@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { requireEnv } from "@/lib/env";
 import type { LineMessage, TextMessage } from "@/lib/line/types";
 
@@ -29,6 +30,28 @@ export async function pushToStaff(messages: LineMessage[]): Promise<void> {
     });
     if (!res.ok) console.error(`LINE push failed (${res.status}): ${await res.text()}`);
   }
+}
+
+export function hasCustomerLine(): boolean {
+  return Boolean(process.env.LINE_OA_CHANNEL_ACCESS_TOKEN);
+}
+
+// 同じ retryKey での2回目は、24時間以内なら LINE が 409 で断る（二重送信の防止）
+export async function broadcastToCustomers(messages: LineMessage[], retryKey: string): Promise<"sent" | "already"> {
+  const hex = createHash("sha256").update(retryKey).digest("hex");
+  const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  const res = await fetch("https://api.line.me/v2/bot/message/broadcast", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${requireEnv("LINE_OA_CHANNEL_ACCESS_TOKEN")}`,
+      "X-Line-Retry-Key": uuid,
+    },
+    body: JSON.stringify({ messages: messages.slice(0, 5) }),
+  });
+  if (res.status === 409) return "already";
+  if (!res.ok) throw new Error(`LINE broadcast failed (${res.status}): ${await res.text()}`);
+  return "sent";
 }
 
 // トークで送られた写真などの中身を取り出す
