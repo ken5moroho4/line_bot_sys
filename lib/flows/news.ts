@@ -130,7 +130,7 @@ async function publish(ctx: Context, d: Draft) {
   });
   await clearSession(ctx.userId);
   await reply(ctx.replyToken, [
-    text(`公開しました！\n${siteUrl()}/news/${slug}\n\n※修正・削除・メール配信は管理画面から行ってください。`, [CMD_NEWS]),
+    text(`公開しました！\n${siteUrl()}/news/${slug}\n\n※消すときは「お知らせ削除」と送ってください。修正・メール配信は管理画面から行ってください。`, [CMD_NEWS]),
   ]);
 }
 

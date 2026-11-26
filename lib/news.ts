@@ -66,3 +66,26 @@ export async function uploadNewsImage(bytes: ArrayBuffer, contentType: string): 
   if (error) throw new Error(error.message);
   return supabase.storage.from("news-images").getPublicUrl(filename).data.publicUrl;
 }
+
+export type NewsSummary = { slug: string; title: string; store: string; date: string };
+
+export async function listRecentNews(limit: number): Promise<NewsSummary[]> {
+  const { data, error } = await getAdmin()
+    .from("news")
+    .select("slug, title, store, date")
+    .order("date", { ascending: false })
+    .order("slug", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function deleteNews(slug: string): Promise<void> {
+  const { error } = await getAdmin().from("news").delete().eq("slug", slug);
+  if (error) throw new Error(error.message);
+  await revalidateSite(["/", "/news", `/news/${slug}`]);
+}
+
+export function storeLabel(store: string): string {
+  return NEWS_STORES[store as NewsStore] ?? store;
+}
