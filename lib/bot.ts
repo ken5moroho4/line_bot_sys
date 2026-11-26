@@ -5,16 +5,23 @@ import type { LineEvent } from "@/lib/line/types";
 import { clearSession, loadSession } from "@/lib/session";
 import { isAllowedStaff } from "@/lib/staff";
 import { handlePostback } from "@/lib/postback";
-import { FLOWS } from "@/lib/flows";
+import { DEFAULT_FLOW, FLOWS } from "@/lib/flows";
 import { CMD_CANCEL } from "@/lib/flows/commands";
 import type { Context } from "@/lib/flows/types";
 
 const MENU = FLOWS.map((f) => f.label);
+const CMD_HELP = /^(ヘルプ|メニュー|使い方|help)$/i;
 
 function helpMessage() {
   const lines = FLOWS.map((f) => `・「${f.label}」… ${f.description}`);
   return text(
-    ["三河屋サイト更新ボットです。", "", ...lines, `・「${CMD_CANCEL}」… 途中でやめる`].join("\n"),
+    [
+      "三河屋サイト更新ボットです。",
+      "「秦野店、12月1日から寄せ豆腐はじめるってお知らせ出して」のように話しかけても始められます。",
+      "",
+      ...lines,
+      `・「${CMD_CANCEL}」… 途中でやめる`,
+    ].join("\n"),
     MENU
   );
 }
@@ -72,10 +79,15 @@ export async function handleEvent(event: LineEvent): Promise<void> {
       return;
     }
 
+    if (CMD_HELP.test(ctx.input)) {
+      await reply(replyToken, [helpMessage()]);
+      return;
+    }
+
     const session = await loadSession(ctx.userId);
     const flow = session && FLOWS.find((f) => f.name === session.flow);
     if (!session || !flow) {
-      await reply(replyToken, [helpMessage()]);
+      await DEFAULT_FLOW.start(ctx);
       return;
     }
     await flow.handle(ctx, session);

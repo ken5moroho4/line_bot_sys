@@ -1,7 +1,8 @@
-// お知らせ（ニュース）の投稿：店舗 → タイトル → 本文 → 写真 → 確認 → 公開
+// お知らせ（ニュース）の投稿：話した内容から AI が下書き → やりとりで直す → 写真 → 公開
 import { fetchContent, reply, text } from "@/lib/line/api";
 import { clearSession, saveSession, Session } from "@/lib/session";
 import { siteUrl } from "@/lib/site";
+import { chatClaude, ChatTurn, extractJson, hasClaude } from "@/lib/claude";
 import {
   NEWS_STORES,
   NewsStore,
@@ -14,152 +15,182 @@ import { CMD_CANCEL } from "@/lib/flows/commands";
 import type { Context, Flow } from "@/lib/flows/types";
 
 type Draft = { store?: NewsStore; title?: string; content?: string; image?: string | null };
-type Step = "store" | "title" | "content" | "image" | "confirm";
+type Data = { draft: Draft; history: ChatTurn[] };
 
 const FLOW = "news";
 const CMD_NEWS = "ニュース";
 const CMD_PUBLISH = "公開する";
-const CMD_NO_IMAGE = "写真なし";
-const STORE_LABELS = Object.values(NEWS_STORES);
+const CMD_REMOVE_IMAGE = "写真を外す";
+const TRIGGER = /^(ニュース|お知らせ)(投稿|作成)?$/;
+const MAX_HISTORY = 20;
 
-function save(userId: string, step: Step, data: Draft) {
-  return saveSession<Draft>(userId, { flow: FLOW, step, data });
+const SYSTEM = `あなたは豆腐店「杜のとうふ工房 三河屋」の従業員が、店のサイトに載せるお知らせを作るのを手伝います。
+従業員は LINE で話しかけてきます。話の内容からお知らせの下書き（店舗・タイトル・本文）を作り、頼まれたら直します。
+
+店舗は次のどれかです。かっこ内は従業員が使いそうな呼び方です。
+- hadano：秦野店（秦野、はだの）
+- zushi：逗子店（逗子、鎌倉、小町、渚）
+- kaname：金目店（金目、平塚）
+- yamamori：山守（山守、茶屋）
+
+守ること
+- 従業員が言っていない事実（日付、価格、数量、時間、商品名、理由）は書かない。足りなければ reply で聞く。
+- 「明日」「来週の土曜」のような言い方は、今日の日付から計算して「12月1日（月）」のように日付で書く。
+- タイトルは40字以内。本文はお客さま向けの丁寧な文で、短めにする。
+- 店舗が分からないときは store を null にして、reply でどの店か聞く。
+- 公開はあなたにはできない。従業員が「公開する」ボタンを押すと公開される。
+- お知らせと関係のない話には、reply で短く答え、下書きは変えない。
+
+出力は次の JSON だけにしてください。変えない項目も、今の値をそのまま入れてください。
+{ "store": "hadano" | "zushi" | "kaname" | "yamamori" | null, "title": string | null, "content": string | null, "reply": "従業員への短い返事（1〜2文）" }`;
+
+function save(userId: string, data: Data) {
+  return saveSession<Data>(userId, { flow: FLOW, step: "chat", data });
 }
 
-function matchStore(input: string): NewsStore | undefined {
-  const s = input.normalize("NFKC").replace(/\s/g, "");
-  if (/逗子|鎌倉|小町|渚/.test(s)) return "zushi";
-  if (/秦野|はだの/.test(s)) return "hadano";
-  if (/金目|平塚/.test(s)) return "kaname";
-  if (/山守|茶屋/.test(s)) return "yamamori";
-  return undefined;
+function isComplete(d: Draft): boolean {
+  return Boolean(d.store && d.title && d.content);
+}
+
+function hasDraft(d: Draft): boolean {
+  return Boolean(d.store || d.title || d.content);
 }
 
 function preview(d: Draft): string {
   const body = (d.content ?? "").length > 800 ? `${d.content!.slice(0, 800)}…` : d.content;
   return [
-    "【確認】この内容で公開しますか？",
-    "",
-    `店舗：${d.store ? NEWS_STORES[d.store] : ""}`,
+    "【下書き】",
+    `店舗：${d.store ? NEWS_STORES[d.store] : "（未定）"}`,
     `日付：${todayJst()}`,
-    `タイトル：${d.title}`,
+    `タイトル：${d.title ?? "（未定）"}`,
     `写真：${d.image ? "あり" : "なし"}`,
     "",
-    body,
+    body ?? "（本文未定）",
   ].join("\n");
 }
 
-async function start(ctx: Context) {
-  await save(ctx.userId, "store", {});
+function buttons(d: Draft): string[] {
+  return [
+    ...(isComplete(d) ? [CMD_PUBLISH] : []),
+    ...(hasDraft(d) && !d.store ? Object.values(NEWS_STORES) : []),
+    ...(d.image ? [CMD_REMOVE_IMAGE] : []),
+    CMD_CANCEL,
+  ];
+}
+
+async function replyWithDraft(replyToken: string, message: string, d: Draft) {
+  const hint = isComplete(d)
+    ? "直したいところがあれば話しかけてください。写真を付けるなら送ってください。"
+    : "";
+  if (!hasDraft(d)) {
+    await reply(replyToken, [text(message, buttons(d))]);
+    return;
+  }
+  await reply(replyToken, [text(message), text(hint ? `${preview(d)}\n\n${hint}` : preview(d), buttons(d))]);
+}
+
+function sanitize(raw: Record<string, unknown>, prev: Draft): Draft {
+  const store = typeof raw.store === "string" && raw.store in NEWS_STORES ? (raw.store as NewsStore) : undefined;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  return {
+    store,
+    title: str(raw.title)?.slice(0, 100),
+    content: str(raw.content),
+    image: prev.image ?? null,
+  };
+}
+
+async function talk(ctx: Context, data: Data) {
+  const history: ChatTurn[] = [...data.history, { role: "user" as const, content: ctx.input }].slice(-MAX_HISTORY);
+  const { image, ...draftForAi } = data.draft;
+  const system = `${SYSTEM}\n\n今日は ${todayJst()} です。\n今の下書き：${JSON.stringify({ ...draftForAi, image: image ? "あり" : "なし" })}`;
+  const raw = extractJson<Record<string, unknown>>(await chatClaude(system, history, 2000));
+  const draft = sanitize(raw, data.draft);
+  const message = typeof raw.reply === "string" && raw.reply.trim() ? raw.reply.trim() : "下書きを作りました。";
+
+  await save(ctx.userId, {
+    draft,
+    history: [...history, { role: "assistant" as const, content: JSON.stringify(raw) }].slice(-MAX_HISTORY),
+  });
+  await replyWithDraft(ctx.replyToken, message, draft);
+}
+
+async function publish(ctx: Context, d: Draft) {
+  if (!isComplete(d)) {
+    await reply(ctx.replyToken, [text("まだ店舗・タイトル・本文がそろっていません。", buttons(d))]);
+    return;
+  }
+  const { slug } = await createNews({
+    title: d.title!,
+    store: d.store!,
+    date: todayJst(),
+    excerpt: buildExcerpt(d.content!),
+    image: d.image ?? null,
+    content: d.content!,
+  });
+  await clearSession(ctx.userId);
   await reply(ctx.replyToken, [
-    text("お知らせを作ります。どのお店のお知らせですか？\n（途中でやめるときは「やめる」）", [
-      ...STORE_LABELS,
-      CMD_CANCEL,
-    ]),
+    text(`公開しました！\n${siteUrl()}/news/${slug}\n\n※修正・削除・メール配信は管理画面から行ってください。`, [CMD_NEWS]),
   ]);
 }
 
-async function handle(ctx: Context, session: Session) {
-  const { replyToken, userId, message, input } = ctx;
-  const d = session.data as Draft;
-
-  switch (session.step as Step) {
-    case "store": {
-      const store = matchStore(input);
-      if (!store) {
-        await reply(replyToken, [text("下のボタンからお店を選んでください。", [...STORE_LABELS, CMD_CANCEL])]);
-        return;
-      }
-      await save(userId, "title", { ...d, store });
-      await reply(replyToken, [text(`${NEWS_STORES[store]}ですね。\nタイトルを送ってください。`, [CMD_CANCEL])]);
-      return;
-    }
-
-    case "title": {
-      if (!input) {
-        await reply(replyToken, [text("タイトルを文字で送ってください。", [CMD_CANCEL])]);
-        return;
-      }
-      if (input.length > 100) {
-        await reply(replyToken, [text("タイトルは100文字以内でお願いします。", [CMD_CANCEL])]);
-        return;
-      }
-      await save(userId, "content", { ...d, title: input });
-      await reply(replyToken, [
-        text("本文を送ってください。\n（改行もそのまま反映されます。URLはリンクになります）", [CMD_CANCEL]),
-      ]);
-      return;
-    }
-
-    case "content": {
-      if (!input) {
-        await reply(replyToken, [text("本文を文字で送ってください。", [CMD_CANCEL])]);
-        return;
-      }
-      await save(userId, "image", { ...d, content: input });
-      await reply(replyToken, [
-        text("写真を1枚送ってください。\n写真を付けない場合は「写真なし」を押してください。", [CMD_NO_IMAGE, CMD_CANCEL]),
-      ]);
-      return;
-    }
-
-    case "image": {
-      let image: string | null;
-      if (message.type === "image" && message.id) {
-        const { bytes, contentType } = await fetchContent(message.id);
-        image = await uploadNewsImage(bytes, contentType);
-      } else if (input === CMD_NO_IMAGE || input === "なし") {
-        image = null;
-      } else {
-        await reply(replyToken, [text("写真を送るか、「写真なし」を押してください。", [CMD_NO_IMAGE, CMD_CANCEL])]);
-        return;
-      }
-      const next = { ...d, image };
-      await save(userId, "confirm", next);
-      await reply(replyToken, [text(preview(next), [CMD_PUBLISH, CMD_CANCEL])]);
-      return;
-    }
-
-    case "confirm": {
-      if (input !== CMD_PUBLISH) {
-        await reply(replyToken, [text("「公開する」か「やめる」を押してください。", [CMD_PUBLISH, CMD_CANCEL])]);
-        return;
-      }
-      if (!d.store || !d.title || !d.content) {
-        await clearSession(userId);
-        await reply(replyToken, [text("内容が足りないため最初からやり直してください。", [CMD_NEWS])]);
-        return;
-      }
-      const { slug } = await createNews({
-        title: d.title,
-        store: d.store,
-        date: todayJst(),
-        excerpt: buildExcerpt(d.content),
-        image: d.image ?? null,
-        content: d.content,
-      });
-      await clearSession(userId);
-      await reply(replyToken, [
-        text(
-          `公開しました！\n${siteUrl()}/news/${slug}\n\n※修正・削除・メール配信は管理画面から行ってください。`,
-          [CMD_NEWS]
-        ),
-      ]);
-      return;
-    }
-
-    default:
-      // 知らない段階（古い途中経過など）は最初からやり直す
-      await clearSession(userId);
-      await start(ctx);
+async function start(ctx: Context) {
+  if (!hasClaude()) {
+    await reply(ctx.replyToken, [text("いまAIが使えないため、お知らせは管理画面から投稿してください。")]);
+    return;
   }
+  const empty: Data = { draft: {}, history: [] };
+  if (TRIGGER.test(ctx.input)) {
+    await save(ctx.userId, empty);
+    await reply(ctx.replyToken, [
+      text(
+        "どんなお知らせですか？話しかけるように送ってください。\n例：秦野店、12月1日から寄せ豆腐はじめるってお知らせ出して\n（やめるときは「やめる」）",
+        [CMD_CANCEL]
+      ),
+    ]);
+    return;
+  }
+  await handle(ctx, { flow: FLOW, step: "chat", data: empty });
+}
+
+async function handle(ctx: Context, session: Session) {
+  const data = session.data as Partial<Data>;
+  const current: Data = { draft: data.draft ?? {}, history: data.history ?? [] };
+  const { message, input } = ctx;
+
+  if (message.type === "image" && message.id) {
+    const { bytes, contentType } = await fetchContent(message.id);
+    const draft = { ...current.draft, image: await uploadNewsImage(bytes, contentType) };
+    await save(ctx.userId, { ...current, draft });
+    await replyWithDraft(
+      ctx.replyToken,
+      hasDraft(draft) ? "写真を付けました。" : "写真を受け取りました。どんなお知らせか話しかけてください。",
+      draft
+    );
+    return;
+  }
+  if (input === CMD_PUBLISH) {
+    await publish(ctx, current.draft);
+    return;
+  }
+  if (input === CMD_REMOVE_IMAGE) {
+    const draft = { ...current.draft, image: null };
+    await save(ctx.userId, { ...current, draft });
+    await replyWithDraft(ctx.replyToken, "写真を外しました。", draft);
+    return;
+  }
+  if (!input) {
+    await reply(ctx.replyToken, [text("文字か写真で送ってください。", buttons(current.draft))]);
+    return;
+  }
+  await talk(ctx, current);
 }
 
 export const newsFlow: Flow = {
   name: FLOW,
   label: CMD_NEWS,
-  trigger: /^(ニュース|お知らせ)(投稿|作成)?$/,
-  description: "お知らせを投稿する",
+  trigger: TRIGGER,
+  description: "お知らせを投稿する（話しかけるだけでAIが下書きします）",
   start,
   handle,
 };

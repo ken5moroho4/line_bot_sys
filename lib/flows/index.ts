@@ -3,3 +3,4 @@ import type { Flow } from "@/lib/flows/types";
 
 // ボットでできること。ここに足せばヘルプと呼び出しに自動で載る
 export const FLOWS: Flow[] = [newsFlow];
+export const DEFAULT_FLOW: Flow = newsFlow;

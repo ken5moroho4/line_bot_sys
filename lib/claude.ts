@@ -5,7 +5,13 @@ export function hasClaude(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
 export async function askClaude(system: string, user: string, maxTokens = 4000): Promise<string> {
+  return chatClaude(system, [{ role: "user", content: user }], maxTokens);
+}
+
+export async function chatClaude(system: string, messages: ChatTurn[], maxTokens = 4000): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -17,7 +23,7 @@ export async function askClaude(system: string, user: string, maxTokens = 4000):
       model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5",
       max_tokens: maxTokens,
       system,
-      messages: [{ role: "user", content: user }],
+      messages,
     }),
   });
   if (!res.ok) throw new Error(`Claude API failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
