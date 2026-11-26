@@ -22,7 +22,8 @@ const FLOW = "news";
 const CMD_NEWS = "ニュース";
 const CMD_PUBLISH = "公開する";
 const CMD_REMOVE_IMAGE = "写真を外す";
-const TRIGGER = /^(ニュース|お知らせ)(投稿|作成)?$/;
+const START_WORD = /^(ニュース|お知らせ)(投稿|作成)?$/;
+const TRIGGER = /^(?!.*(削除|消)).*ニュース|^お知らせ(投稿|作成)?$/;
 const MAX_HISTORY = 20;
 
 const SYSTEM = `あなたは豆腐店「杜のとうふ工房 三河屋」の従業員が、店のサイトに載せるお知らせを作るのを手伝います。
@@ -147,7 +148,7 @@ async function start(ctx: Context) {
     return;
   }
   const empty: Data = { draft: {}, history: [] };
-  if (TRIGGER.test(ctx.input)) {
+  if (START_WORD.test(ctx.input)) {
     await save(ctx.sessionKey, empty);
     await reply(ctx.replyToken, [
       text(

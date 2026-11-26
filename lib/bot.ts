@@ -81,7 +81,7 @@ ${userId ?? ""}`),
   try {
     const session = await loadSession(ctx.sessionKey);
     const started = FLOWS.find((f) => f.trigger.test(ctx.input));
-    if (inGroup && !mentioned && !started && !session) return;
+    if (inGroup && !mentioned && !session) return;
 
     if (ctx.input === CMD_CANCEL || ctx.input === "キャンセル") {
       await clearSession(ctx.sessionKey);
@@ -89,7 +89,7 @@ ${userId ?? ""}`),
       return;
     }
 
-    if (started) {
+    if (started && started.name !== session?.flow) {
       await started.start(ctx);
       return;
     }
