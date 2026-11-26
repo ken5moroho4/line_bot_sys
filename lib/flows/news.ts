@@ -12,6 +12,7 @@ import {
   uploadNewsImage,
 } from "@/lib/news";
 import { CMD_CANCEL } from "@/lib/flows/commands";
+import { newsDeleteFlow } from "@/lib/flows/news-delete";
 import type { Context, Flow } from "@/lib/flows/types";
 
 type Draft = { store?: NewsStore; title?: string; content?: string; image?: string | null };
@@ -39,10 +40,11 @@ const SYSTEM = `あなたは豆腐店「杜のとうふ工房 三河屋」の従
 - タイトルは40字以内。本文はお客さま向けの丁寧な文で、短めにする。
 - 店舗が分からないときは store を null にして、reply でどの店か聞く。
 - 公開はあなたにはできない。従業員が「公開する」ボタンを押すと公開される。
+- 公開済みのお知らせを消したい・削除したいという話なら、action を "delete" にする。それ以外は "draft"。
 - お知らせと関係のない話には、reply で短く答え、下書きは変えない。
 
 出力は次の JSON だけにしてください。変えない項目も、今の値をそのまま入れてください。
-{ "store": "hadano" | "zushi" | "kaname" | "yamamori" | null, "title": string | null, "content": string | null, "reply": "従業員への短い返事（1〜2文）" }`;
+{ "action": "draft" | "delete", "store": "hadano" | "zushi" | "kaname" | "yamamori" | null, "title": string | null, "content": string | null, "reply": "従業員への短い返事（1〜2文）" }`;
 
 function save(userId: string, data: Data) {
   return saveSession<Data>(userId, { flow: FLOW, step: "chat", data });
@@ -105,6 +107,11 @@ async function talk(ctx: Context, data: Data) {
   const { image, ...draftForAi } = data.draft;
   const system = `${SYSTEM}\n\n今日は ${todayJst()} です。\n今の下書き：${JSON.stringify({ ...draftForAi, image: image ? "あり" : "なし" })}`;
   const raw = extractJson<Record<string, unknown>>(await chatAi(system, history, 2000));
+  if (raw.action === "delete") {
+    await clearSession(ctx.userId);
+    await newsDeleteFlow.start(ctx);
+    return;
+  }
   const draft = sanitize(raw, data.draft);
   const message = typeof raw.reply === "string" && raw.reply.trim() ? raw.reply.trim() : "下書きを作りました。";
 

@@ -75,7 +75,7 @@ async function handle(ctx: Context, session: Session) {
 export const newsDeleteFlow: Flow = {
   name: FLOW,
   label: CMD_DELETE_NEWS,
-  trigger: /^(お知らせ|ニュース)(の|を)?(削除|消す|消したい|けす)/,
+  trigger: /^(お知らせ|ニュース)(の|を)?(削除|消)/,
   description: "公開したお知らせを消す",
   start,
   handle,
