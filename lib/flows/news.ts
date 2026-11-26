@@ -2,7 +2,7 @@
 import { fetchContent, reply, text } from "@/lib/line/api";
 import { clearSession, saveSession, Session } from "@/lib/session";
 import { siteUrl } from "@/lib/site";
-import { chatClaude, ChatTurn, extractJson, hasClaude } from "@/lib/claude";
+import { chatAi, ChatTurn, extractJson, hasAi } from "@/lib/ai";
 import {
   NEWS_STORES,
   NewsStore,
@@ -104,7 +104,7 @@ async function talk(ctx: Context, data: Data) {
   const history: ChatTurn[] = [...data.history, { role: "user" as const, content: ctx.input }].slice(-MAX_HISTORY);
   const { image, ...draftForAi } = data.draft;
   const system = `${SYSTEM}\n\n今日は ${todayJst()} です。\n今の下書き：${JSON.stringify({ ...draftForAi, image: image ? "あり" : "なし" })}`;
-  const raw = extractJson<Record<string, unknown>>(await chatClaude(system, history, 2000));
+  const raw = extractJson<Record<string, unknown>>(await chatAi(system, history, 2000));
   const draft = sanitize(raw, data.draft);
   const message = typeof raw.reply === "string" && raw.reply.trim() ? raw.reply.trim() : "下書きを作りました。";
 
@@ -135,7 +135,7 @@ async function publish(ctx: Context, d: Draft) {
 }
 
 async function start(ctx: Context) {
-  if (!hasClaude()) {
+  if (!hasAi()) {
     await reply(ctx.replyToken, [text("いまAIが使えないため、お知らせは管理画面から投稿してください。")]);
     return;
   }

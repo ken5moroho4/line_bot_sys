@@ -1,34 +1,32 @@
-// Claude API（Messages API）を直接呼ぶ。SDK を入れずに fetch だけで済ませる
+// OpenAI API（Chat Completions）を直接呼ぶ。SDK を入れずに fetch だけで済ませる
 import { requireEnv } from "@/lib/env";
-
-export function hasClaude(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-export async function askClaude(system: string, user: string, maxTokens = 4000): Promise<string> {
-  return chatClaude(system, [{ role: "user", content: user }], maxTokens);
+export function hasAi(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY);
 }
 
-export async function chatClaude(system: string, messages: ChatTurn[], maxTokens = 4000): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+export async function askAi(system: string, user: string, maxTokens = 4000): Promise<string> {
+  return chatAi(system, [{ role: "user", content: user }], maxTokens);
+}
+
+export async function chatAi(system: string, messages: ChatTurn[], maxTokens = 4000): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": requireEnv("ANTHROPIC_API_KEY"),
-      "anthropic-version": "2023-06-01",
+      Authorization: `Bearer ${requireEnv("OPENAI_API_KEY")}`,
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5",
-      max_tokens: maxTokens,
-      system,
-      messages,
+      model: process.env.OPENAI_MODEL || "gpt-4o",
+      max_completion_tokens: maxTokens,
+      messages: [{ role: "system", content: system }, ...messages],
     }),
   });
-  if (!res.ok) throw new Error(`Claude API failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-  const json = (await res.json()) as { content?: { type: string; text?: string }[] };
-  return (json.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("");
+  if (!res.ok) throw new Error(`OpenAI API failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const json = (await res.json()) as { choices?: { message?: { content?: string | null } }[] };
+  return json.choices?.[0]?.message?.content ?? "";
 }
 
 // 返答の中から最初の JSON オブジェクトを取り出す（```json で囲まれていても可）

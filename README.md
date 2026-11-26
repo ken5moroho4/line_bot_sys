@@ -56,7 +56,7 @@
 毎週月曜 9:00（Vercel Cron）
   └─ /api/cron/weekly
        ├─ PostHog から直近7日・前週の数字を集計（lib/posthog.ts）
-       ├─ Claude が読んで提案を最大3件（lib/report/weekly.ts）→ line_proposals に保存
+       ├─ AI（GPT）が読んで提案を最大3件（lib/report/weekly.ts）→ line_proposals に保存
        └─ 従業員のLINEに「今週の様子」＋提案カード（採用する／見送る）
 
 「採用する」（サイトの改修）

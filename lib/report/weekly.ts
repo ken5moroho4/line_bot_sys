@@ -1,6 +1,6 @@
-// 週次レポート：PostHog の数字 → Claude が読んで提案 → 保存
+// 週次レポート：PostHog の数字 → AI が読んで提案 → 保存
 // 提案は WEEKLY_PROPOSALS=on のときだけ作る（それ以外は数字のまとめだけ）
-import { askClaude, extractJson, hasClaude } from "@/lib/claude";
+import { askAi, extractJson, hasAi } from "@/lib/ai";
 import { collectWeeklyStats, WeeklyStats } from "@/lib/posthog";
 import { recentCommits } from "@/lib/github";
 import { insertProposals, listRecentProposals, NewProposal, Proposal } from "@/lib/proposals";
@@ -83,7 +83,7 @@ export async function buildWeeklyReport(options: { save: boolean; proposals?: bo
   const stats = await collectWeeklyStats();
   const wantProposals = options.proposals ?? proposalsEnabled();
 
-  if (!hasClaude()) {
+  if (!hasAi()) {
     return { stats, summary: fallbackSummary(stats), proposals: [] };
   }
 
@@ -101,7 +101,7 @@ export async function buildWeeklyReport(options: { save: boolean; proposals?: bo
     input.recentChanges = recentChanges;
   }
 
-  const text = await askClaude(
+  const text = await askAi(
     wantProposals ? WITH_PROPOSALS : SUMMARY_ONLY,
     `今週（直近7日）と前週（その前の7日）の数字です。\n${JSON.stringify(input, null, 2)}`
   );
